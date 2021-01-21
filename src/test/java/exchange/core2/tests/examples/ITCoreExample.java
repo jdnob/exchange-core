@@ -1,11 +1,29 @@
 package exchange.core2.tests.examples;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
+
+import org.junit.Test;
+
 import exchange.core2.core.ExchangeApi;
 import exchange.core2.core.ExchangeCore;
 import exchange.core2.core.IEventsHandler;
 import exchange.core2.core.SimpleEventsProcessor;
-import exchange.core2.core.common.*;
-import exchange.core2.core.common.api.*;
+import exchange.core2.core.common.CoreSymbolSpecification;
+import exchange.core2.core.common.L2MarketData;
+import exchange.core2.core.common.OrderAction;
+import exchange.core2.core.common.OrderType;
+import exchange.core2.core.common.SymbolType;
+import exchange.core2.core.common.api.ApiAddUser;
+import exchange.core2.core.common.api.ApiAdjustUserBalance;
+import exchange.core2.core.common.api.ApiCancelOrder;
+import exchange.core2.core.common.api.ApiMoveOrder;
+import exchange.core2.core.common.api.ApiPlaceOrder;
 import exchange.core2.core.common.api.binary.BatchAddSymbolsCommand;
 import exchange.core2.core.common.api.reports.SingleUserReportQuery;
 import exchange.core2.core.common.api.reports.SingleUserReportResult;
@@ -13,199 +31,237 @@ import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportQuery;
 import exchange.core2.core.common.api.reports.TotalCurrencyBalanceReportResult;
 import exchange.core2.core.common.cmd.CommandResultCode;
 import exchange.core2.core.common.config.ExchangeConfiguration;
+import exchange.core2.tests.examples.WebsocketClientEndpoint.MessageHandler;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
-
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 
 @Slf4j
 public class ITCoreExample {
 
-    @Test
-    public void sampleTest() throws Exception {
-
-        // simple async events handler
-        SimpleEventsProcessor eventsProcessor = new SimpleEventsProcessor(new IEventsHandler() {
-            @Override
-            public void tradeEvent(TradeEvent tradeEvent) {
-                System.out.println("Trade event: " + tradeEvent);
-            }
-
-            @Override
-            public void reduceEvent(ReduceEvent reduceEvent) {
-                System.out.println("Reduce event: " + reduceEvent);
-            }
-
-            @Override
-            public void rejectEvent(RejectEvent rejectEvent) {
-                System.out.println("Reject event: " + rejectEvent);
-            }
-
-            @Override
-            public void commandResult(ApiCommandResult commandResult) {
-                System.out.println("Command result: " + commandResult);
-            }
-
-            @Override
-            public void orderBook(OrderBook orderBook) {
-                System.out.println("OrderBook event: " + orderBook);
-            }
-        });
-
-        // default exchange configuration
-        ExchangeConfiguration conf = ExchangeConfiguration.defaultBuilder().build();
-
-        // build exchange core
-        ExchangeCore exchangeCore = ExchangeCore.builder()
-                .resultsConsumer(eventsProcessor)
-                .exchangeConfiguration(conf)
-                .build();
-
-        // start up disruptor threads
-        exchangeCore.startup();
-
-        // get exchange API for publishing commands
-        ExchangeApi api = exchangeCore.getApi();
-
-        // currency code constants
-        final int currencyCodeXbt = 11;
-        final int currencyCodeLtc = 15;
-
-        // symbol constants
-        final int symbolXbtLtc = 241;
-
         Future<CommandResultCode> future;
 
-        // create symbol specification and publish it
-        CoreSymbolSpecification symbolSpecXbtLtc = CoreSymbolSpecification.builder()
-                .symbolId(symbolXbtLtc)         // symbol id
-                .type(SymbolType.CURRENCY_EXCHANGE_PAIR)
-                .baseCurrency(currencyCodeXbt)    // base = satoshi (1E-8)
-                .quoteCurrency(currencyCodeLtc)   // quote = litoshi (1E-8)
-                .baseScaleK(1_000_000L) // 1 lot = 1M satoshi (0.01 BTC)
-                .quoteScaleK(10_000L)   // 1 price step = 10K litoshi
-                .takerFee(1900L)        // taker fee 1900 litoshi per 1 lot
-                .makerFee(700L)         // maker fee 700 litoshi per 1 lot
-                .build();
+        @Test
+        public void sampleTest() throws Exception {
 
-        future = api.submitBinaryDataAsync(new BatchAddSymbolsCommand(symbolSpecXbtLtc));
-        System.out.println("BatchAddSymbolsCommand result: " + future.get());
+                // simple async events handler
+                SimpleEventsProcessor eventsProcessor = new SimpleEventsProcessor(new IEventsHandler() {
+                        @Override
+                        public void tradeEvent(TradeEvent tradeEvent) {
+                                System.out.println("Trade event: " + tradeEvent);
+                        }
 
+                        @Override
+                        public void reduceEvent(ReduceEvent reduceEvent) {
+                                System.out.println("Reduce event: " + reduceEvent);
+                        }
 
-        // create user uid=301
-        future = api.submitCommandAsync(ApiAddUser.builder()
-                .uid(301L)
-                .build());
+                        @Override
+                        public void rejectEvent(RejectEvent rejectEvent) {
+                                System.out.println("Reject event: " + rejectEvent);
+                        }
 
-        System.out.println("ApiAddUser 1 result: " + future.get());
+                        @Override
+                        public void commandResult(ApiCommandResult commandResult) {
+                                System.out.println("Command result: " + commandResult);
+                        }
 
+                        @Override
+                        public void orderBook(OrderBook orderBook) {
+                                System.out.println("OrderBook event: " + orderBook);
+                        }
+                });
 
-        // create user uid=302
-        future = api.submitCommandAsync(ApiAddUser.builder()
-                .uid(302L)
-                .build());
+                // default exchange configuration
+                ExchangeConfiguration conf = ExchangeConfiguration.defaultBuilder().build();
 
-        System.out.println("ApiAddUser 2 result: " + future.get());
+                // build exchange core
+                ExchangeCore exchangeCore = ExchangeCore.builder().resultsConsumer(eventsProcessor)
+                                .exchangeConfiguration(conf).build();
 
-        // first user deposits 20 LTC
-        future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(301L)
-                .currency(currencyCodeLtc)
-                .amount(2_000_000_000L)
-                .transactionId(1L)
-                .build());
+                // start up disruptor threads
+                exchangeCore.startup();
 
-        System.out.println("ApiAdjustUserBalance 1 result: " + future.get());
+                // get exchange API for publishing commands
+                ExchangeApi api = exchangeCore.getApi();
 
+                // currency code constants
+                final int currencyCodeXbt = 11;
+                final int currencyCodeLtc = 15;
 
-        // second user deposits 0.10 BTC
-        future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(302L)
-                .currency(currencyCodeXbt)
-                .amount(10_000_000L)
-                .transactionId(2L)
-                .build());
+                // symbol constants
+                final int symbolXbtLtc = 241;
 
-        System.out.println("ApiAdjustUserBalance 2 result: " + future.get());
+                // create symbol specification and publish it
+                CoreSymbolSpecification symbolSpecXbtLtc = CoreSymbolSpecification.builder().symbolId(symbolXbtLtc) // symbol
+                                                                                                                    // id
+                                .type(SymbolType.CURRENCY_EXCHANGE_PAIR).baseCurrency(currencyCodeXbt) // base = satoshi
+                                                                                                       // (1E-8)
+                                .quoteCurrency(currencyCodeLtc) // quote = litoshi (1E-8)
+                                .baseScaleK(1_000_000L) // 1 lot = 1M satoshi (0.01 BTC)
+                                .quoteScaleK(10_000L) // 1 price step = 10K litoshi
+                                .takerFee(1900L) // taker fee 1900 litoshi per 1 lot
+                                .makerFee(700L) // maker fee 700 litoshi per 1 lot
+                                .build();
 
+                future = api.submitBinaryDataAsync(new BatchAddSymbolsCommand(symbolSpecXbtLtc));
+                System.out.println("BatchAddSymbolsCommand result: " + future.get());
 
-        // first user places Good-till-Cancel Bid order
-        // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
-        // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K * 15_400 (in price steps)
-        future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(301L)
-                .orderId(5001L)
-                .price(15_400L)
-                .reservePrice(15_600L) // can move bid order up to the 1.56 LTC, without replacing it
-                .size(12L) // order size is 12 lots
-                .action(OrderAction.BID)
-                .orderType(OrderType.GTC) // Good-till-Cancel
-                .symbol(symbolXbtLtc)
-                .build());
+                // create user uid=301
+                future = api.submitCommandAsync(ApiAddUser.builder().uid(301L).build());
 
-        System.out.println("ApiPlaceOrder 1 result: " + future.get());
+                System.out.println("ApiAddUser 1 result: " + future.get());
 
+                // create user uid=302
+                future = api.submitCommandAsync(ApiAddUser.builder().uid(302L).build());
 
-        // second user places Immediate-or-Cancel Ask (Sell) order
-        // he assumes wost rate to sell 152.5 LTC for 1 BTC
-        future = api.submitCommandAsync(ApiPlaceOrder.builder()
-                .uid(302L)
-                .orderId(5002L)
-                .price(15_250L)
-                .size(10L) // order size is 10 lots
-                .action(OrderAction.ASK)
-                .orderType(OrderType.IOC) // Immediate-or-Cancel
-                .symbol(symbolXbtLtc)
-                .build());
+                System.out.println("ApiAddUser 2 result: " + future.get());
 
-        System.out.println("ApiPlaceOrder 2 result: " + future.get());
+                // log.info("Launched");
+                // WebSocketClient client = new StandardWebSocketClient();
 
+                // WebSocketStompClient stompClient = new WebSocketStompClient(client);
+                // stompClient.setMessageConverter(new MappingJackson2MessageConverter());
 
-        // request order book
-        CompletableFuture<L2MarketData> orderBookFuture = api.requestOrderBookAsync(symbolXbtLtc, 10);
-        System.out.println("ApiOrderBookRequest result: " + orderBookFuture.get());
+                // StompSessionHandler sessionHandler = new BitstampConnector();
+                // stompClient.connect(URL, sessionHandler);
 
+                // first user deposits 20 LTC
+                future = api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(301L).currency(currencyCodeLtc)
+                                .amount(20_000_000_000_000L).transactionId(1L).build());
 
-        // first user moves remaining order to price 1.53 LTC
-        future = api.submitCommandAsync(ApiMoveOrder.builder()
-                .uid(301L)
-                .orderId(5001L)
-                .newPrice(15_300L)
-                .symbol(symbolXbtLtc)
-                .build());
+                System.out.println("ApiAdjustUserBalance 1 result: " + future.get());
 
-        System.out.println("ApiMoveOrder 2 result: " + future.get());
+                // second user deposits 0.10 BTC
+                future = api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(302L).currency(currencyCodeXbt)
+                                .amount(100_000_000_000L).transactionId(2L).build());
 
-        // first user cancel remaining order
-        future = api.submitCommandAsync(ApiCancelOrder.builder()
-                .uid(301L)
-                .orderId(5001L)
-                .symbol(symbolXbtLtc)
-                .build());
+                System.out.println("ApiAdjustUserBalance 2 result: " + future.get());
 
-        System.out.println("ApiCancelOrder 2 result: " + future.get());
+                MessageHandler messageHandler = new WebsocketClientEndpoint.MessageHandler() {
+                        @Override
+                        public void handleMessage(String message) {
+                                Gson gson = new Gson();
+                                MyOrder myOrder = gson.fromJson(message, MyOrder.class);
 
-        // check balances
-        Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(301), 0);
-        System.out.println("SingleUserReportQuery 1 accounts: " + report1.get().getAccounts());
+                                double priceDouble = myOrder.getData().getPrice() * 10000; // convert to price step (10k litoshi)
+                                double priceMaxDouble = myOrder.getData().getPrice() * 12000;
+                                long priceLong = (long) priceDouble;
+                                
 
-        Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(302), 0);
-        System.out.println("SingleUserReportQuery 2 accounts: " + report2.get().getAccounts());
+                                future = api.submitCommandAsync(
+                                        ApiPlaceOrder.builder()
+                                                .uid(myOrder.getData().getOrder_type() == 1 ? 301L : 302L) // l'acheteur est toujours le même, le vendeur est toujours le même 
+                                                .orderId(myOrder.getData().getId()).price(priceLong)
+                                                .reservePrice(myOrder.getData().getOrder_type() == 0 ? (long) priceMaxDouble : 0) // add a reserve price
+                                                .size(10L) // order size
+                                                .action(myOrder.getData().getOrder_type() == 1 ? OrderAction.BID : OrderAction.ASK)
+                                                .orderType(OrderType.GTC) // Immediate-or-Cancel
+                                                .symbol(symbolXbtLtc).build());
+        
+                                // future = api.submitCommandAsync(ApiPlaceOrder.builder()
+                                // .uid(301L)
+                                // .orderId(myOrder.getData().getId())
+                                // .price(Double.doubleToLongBits(myOrder.getData().getPrice()))
+                                // .reservePrice(15_600L)
+                                // .size(Double.doubleToLongBits(myOrder.getData().getAmount()))
+                                // .action(myOrder.getData().getOrder_type() == 1 ? OrderAction.ASK : OrderAction.BID)
+                                // .symbol(symbolXbtLtc)
+                                // .build());
+                        }
+                };
 
-        // first user withdraws 0.10 BTC
-        future = api.submitCommandAsync(ApiAdjustUserBalance.builder()
-                .uid(301L)
-                .currency(currencyCodeXbt)
-                .amount(-10_000_000L)
-                .transactionId(3L)
-                .build());
+                final String URL = "wss://ws.bitstamp.net/";
+                try {
+                        // open websocket
+                        final WebsocketClientEndpoint clientEndPoint = new WebsocketClientEndpoint(new URI(URL));
 
-        System.out.println("ApiAdjustUserBalance 1 result: " + future.get());
+                        // add listener
+                        clientEndPoint.addMessageHandler(messageHandler);
 
-        // check fees collected
-        Future<TotalCurrencyBalanceReportResult> totalsReport = api.processReport(new TotalCurrencyBalanceReportQuery(), 0);
-        System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(currencyCodeLtc));
+                        BitstampRequest bitstampRequest = new BitstampRequest("bts:subscribe",
+                                        new Data("live_orders_ltcbtc"));
+                        log.info(bitstampRequest.toString());
+                        ObjectMapper jsonObject = new ObjectMapper();
+                        String message = jsonObject.writeValueAsString(bitstampRequest);
+                        log.info(message);
+                        // send message to websocket
+                        clientEndPoint.sendMessage(message);
 
-    }
+                        // wait 5 seconds for messages from websocket
+                        Thread.sleep(3000);
+
+                } catch (InterruptedException ex) {
+                        System.err.println("InterruptedException exception: " + ex.getMessage());
+                } catch (URISyntaxException ex) {
+                        System.err.println("URISyntaxException exception: " + ex.getMessage());
+                }
+
+                // first user places Good-till-Cancel Bid order
+                // he assumes BTCLTC exchange rate 154 LTC for 1 BTC
+                // bid price for 1 lot (0.01BTC) is 1.54 LTC => 1_5400_0000 litoshi => 10K *
+                // 15_400 (in price steps)
+                future = api.submitCommandAsync(
+                                ApiPlaceOrder.builder().uid(301L).orderId(5001L).price(15_400L).reservePrice(15_600L) // can
+                                                                                                                      // move
+                                                                                                                      // bid
+                                                                                                                      // order
+                                                                                                                      // up
+                                                                                                                      // to
+                                                                                                                      // the
+                                                                                                                      // 1.56
+                                                                                                                      // LTC,
+                                                                                                                      // without
+                                                                                                                      // replacing
+                                                                                                                      // it
+                                                .size(12L) // order size is 12 lots
+                                                .action(OrderAction.BID).orderType(OrderType.GTC) // Good-till-Cancel
+                                                .symbol(symbolXbtLtc).build());
+
+                System.out.println("ApiPlaceOrder 1 result: " + future.get());
+
+                // second user places Immediate-or-Cancel Ask (Sell) order
+                // he assumes wost rate to sell 152.5 LTC for 1 BTC
+                future = api.submitCommandAsync(
+                                ApiPlaceOrder.builder().uid(302L).orderId(5002L).price(15_250L).size(10L) // order size
+                                                                                                          // is 10 lots
+                                                .action(OrderAction.ASK).orderType(OrderType.IOC) // Immediate-or-Cancel
+                                                .symbol(symbolXbtLtc).build());
+
+                System.out.println("ApiPlaceOrder 2 result: " + future.get());
+
+                // request order book
+                CompletableFuture<L2MarketData> orderBookFuture = api.requestOrderBookAsync(symbolXbtLtc, 10);
+                System.out.println("ApiOrderBookRequest result: " + orderBookFuture.get());
+
+                // first user moves remaining order to price 1.53 LTC
+                future = api.submitCommandAsync(ApiMoveOrder.builder().uid(301L).orderId(5001L).newPrice(15_300L)
+                                .symbol(symbolXbtLtc).build());
+
+                System.out.println("ApiMoveOrder 2 result: " + future.get());
+
+                // first user cancel remaining order
+                future = api.submitCommandAsync(
+                                ApiCancelOrder.builder().uid(301L).orderId(5001L).symbol(symbolXbtLtc).build());
+
+                System.out.println("ApiCancelOrder 2 result: " + future.get());
+
+                // check balances
+                Future<SingleUserReportResult> report1 = api.processReport(new SingleUserReportQuery(301), 0);
+                System.out.println("SingleUserReportQuery 1 accounts: " + report1.get().getAccounts());
+
+                Future<SingleUserReportResult> report2 = api.processReport(new SingleUserReportQuery(302), 0);
+                System.out.println("SingleUserReportQuery 2 accounts: " + report2.get().getAccounts());
+
+                // first user withdraws 0.10 BTC
+                // future = api.submitCommandAsync(ApiAdjustUserBalance.builder().uid(301L).currency(currencyCodeXbt)
+                //                 .amount(-10_000_000L).transactionId(3L).build());
+
+                // System.out.println("ApiAdjustUserBalance 1 result: " + future.get());
+
+                // check fees collected
+                Future<TotalCurrencyBalanceReportResult> totalsReport = api
+                                .processReport(new TotalCurrencyBalanceReportQuery(), 0);
+                System.out.println("LTC fees collected: " + totalsReport.get().getFees().get(currencyCodeLtc));
+
+        }
+
 }
